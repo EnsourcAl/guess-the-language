@@ -14,6 +14,10 @@ function load() {
   try { const s = JSON.parse(localStorage.getItem(LS)); if (s && s.players) return s; } catch (e) {}
   return { players: [{ id: 'p1', name: 'Kaysen', score: 0, color: COLORS[0] }], history: [], round: 1, deck: [], seq: 1 };
 }
+const REGIONS = [['all', '🌍', 'All languages'], ['Europe', '🏰', 'Europe'], ['Asia', '🏯', 'Asia'], ['Africa', '🦁', 'Africa'], ['Americas', '🌎', 'Americas'], ['Oceania', '🌺', 'Oceania']];
+const mode = () => S.mode || 'all';
+const isCont = () => mode() !== 'all';
+const pool = () => isCont() ? LANGS.filter(l => l.region === mode()) : LANGS;
 function save() { localStorage.setItem(LS, JSON.stringify(S)); }
 const fmt = n => (Math.round(n * 10) / 10).toString().replace(/\.5$/, '½').replace(/^0½$/, '½');
 function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 1800); }
@@ -23,17 +27,21 @@ function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<':
 function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 function nextCard() {
   const valid = k => { const [id, i] = k.split('#'); return byId[id] && byId[id].phrases[+i]; };
-  S.deck = (S.deck || []).filter(valid);
-  if (!S.deck.length) S.deck = shuffle(LANGS.flatMap(l => l.phrases.map((_, i) => l.id + '#' + i)));
+  // 'all' keeps the original S.deck; each continent game gets its own deck
+  let deck = isCont() ? ((S.decks = S.decks || {})[mode()] || []) : (S.deck || []);
+  const ok = new Set(pool().map(l => l.id));
+  deck = deck.filter(k => valid(k) && ok.has(k.split('#')[0]));
+  if (!deck.length) deck = shuffle(pool().flatMap(l => l.phrases.map((_, i) => l.id + '#' + i)));
   let idx = 0; const last = R && R.lang.id;
-  while (idx < S.deck.length - 1 && S.deck[idx].startsWith(last + '#')) idx++;
-  const [id, i] = S.deck.splice(idx, 1)[0].split('#'); save();
+  while (idx < deck.length - 1 && deck[idx].startsWith(last + '#')) idx++;
+  const [id, i] = deck.splice(idx, 1)[0].split('#');
+  if (isCont()) S.decks[mode()] = deck; else S.deck = deck;
+  save();
   return { lang: byId[id], pi: +i };
 }
 function newRound(started) {
   const c = nextCard(); const lang = c.lang;
-  const others = lang.phrases.map((_, i) => i).filter(i => i !== c.pi);
-  R = { lang, pi: c.pi, hints: 0, revealed: false, awarded: false, started: !!started, alt: others[Math.floor(Math.random() * others.length)] };
+  R = { lang, pi: c.pi, hints: 0, used: [], revealed: false, awarded: false, started: !!started, zoom: false, choices: makeChoices(lang), picked: null };
   render();
 }
 
@@ -53,7 +61,25 @@ function speak(langId, text) {
   if (p && p.catch) p.catch(err => { if (err && err.name === 'NotAllowedError') toast('Tap Replay to hear it'); });
 }
 const playMain = () => speak(R.lang.id, R.lang.phrases[R.pi][0]);
-const playAlt = () => speak(R.lang.id, R.lang.phrases[R.alt][0]);
+function makeChoices(lang) {
+  // correct + 4 others from the same continent; top up with the nearest languages if the continent is small
+  const dist = l => Math.hypot(l.lat - lang.lat, ((l.lon - lang.lon + 540) % 360) - 180);
+  let pick = shuffle(LANGS.filter(l => l.id !== lang.id && l.region === lang.region)).slice(0, 4);
+  if (pick.length < 4) pick = pick.concat(LANGS.filter(l => l.id !== lang.id && !pick.includes(l)).sort((a, b) => dist(a) - dist(b)).slice(0, 4 - pick.length));
+  return shuffle([lang, ...pick]).map(l => l.id);
+}
+const HINTS = () => isCont() ? [['history', '📜', 'History'], ['map', '🗺️', 'Map'], ['choices', '🔢', '5 choices']] : [['continent', '🌍', 'Continent'], ['history', '📜', 'History'], ['map', '🗺️', 'Map']];
+function mapSvg(L, zoom) {
+  const x = (L.lon + 180) * 2, y = (84 - L.lat) * 2, W = 720, H = 284;
+  let vw = W, vh = H, vx = 0, vy = 0;
+  if (zoom) { vw = 220; vh = 150; vx = Math.max(0, Math.min(W - vw, x - vw / 2)); vy = Math.max(0, Math.min(H - vh, y - vh / 2)); }
+  const s = zoom ? 2.4 : 7;
+  return `<svg viewBox="${vx} ${vy} ${vw} ${vh}" role="img" aria-label="Map with a pin where the language is spoken">
+    <image href="map.svg" x="0" y="0" width="${W}" height="${H}"/>
+    <circle cx="${x}" cy="${y}" r="${s * 2.2}" fill="none" stroke="#ff3355" stroke-width="${s * .35}"><animate attributeName="r" from="${s}" to="${s * 4}" dur="1.4s" repeatCount="indefinite"/><animate attributeName="opacity" from="1" to="0" dur="1.4s" repeatCount="indefinite"/></circle>
+    <g id="pin" data-x="${x}" data-y="${y}" transform="translate(${x} ${y}) scale(${s / 5})"><path d="M0 0 C-3 -6 -8 -9 -8 -15 A8 8 0 1 1 8 -15 C8 -9 3 -6 0 0Z" fill="#ff3355" stroke="#fff" stroke-width="1.6"/><circle cx="0" cy="-15" r="3.2" fill="#fff"/></g>
+  </svg><button class="zoom" data-zoom="1">${zoom ? '🌍 Whole world' : '🔍 Zoom in'}</button>`;
+}
 
 // ---- render ----
 function render() {
@@ -73,28 +99,40 @@ function render() {
   const worth = POINTS[R.hints];
   $('worth').textContent = R.awarded ? 'Round done' : 'Worth ' + fmt(worth) + (worth === 1 ? ' pt' : ' pts');
   $('hintCount').textContent = R.hints + '/3 hints';
+  const reg = REGIONS.find(r => r[0] === mode());
+  $('modeBtn').textContent = reg[1] + ' ' + (isCont() ? reg[2] : 'All');
+  $('modeLbl').textContent = isCont() ? reg[2] + ' game' : '';
   const hs = [];
-  if (R.hints >= 1) hs.push(`<li><span class="k">Hint 1 · Continent</span>${esc(L.continent)}</li>`);
-  if (R.hints >= 2) hs.push(`<li><span class="k">Hint 2 · History</span>${esc(L.history)}</li>`);
-  if (R.hints >= 3) {
-    const a = L.phrases[R.alt];
-    const txt = seeText ? `<div class="hp">${esc(a[0])}</div>${a[1] ? `<div class="hr">${esc(a[1])}</div>` : ''}` : '<div>🎧 Another phrase in the same language</div>';
-    hs.push(`<li id="hint3"><span class="k">Hint 3 · Another phrase</span>${txt}<button class="hbtn" data-alt="1">🔁 Replay hint phrase</button></li>`);
+  if (isCont()) hs.push(`<li class="known"><span class="k">Continent (known)</span>${esc(reg[2])}</li>`);
+  for (const h of R.used) {
+    if (h === 'continent') hs.push(`<li><span class="k">Continent</span>${esc(L.continent)}</li>`);
+    if (h === 'history') hs.push(`<li><span class="k">History</span>${esc(L.history)}</li>`);
+    if (h === 'map') hs.push(`<li id="hintMap"><span class="k">Map · where it's spoken</span><div class="mapbox">${mapSvg(L, R.zoom)}</div></li>`);
   }
   $('hints').innerHTML = hs.join('');
-  const labels = ['💡 Hint 1 · Continent', '💡 Hint 2 · History', '💡 Hint 3 · Hear another phrase'];
-  $('hintBtn').textContent = R.hints < 3 ? labels[R.hints] : 'No more hints';
-  $('hintBtn').disabled = R.hints >= 3 || R.revealed || !R.started;
+  const off = R.revealed || !R.started;
+  $('hintBtns').innerHTML = HINTS().map(([id, e, t]) => {
+    const used = R.used.includes(id);
+    const locked = id === 'choices' && !(R.used.includes('history') && R.used.includes('map'));
+    return `<button class="btn hint ${used ? 'used' : ''}" data-hint="${id}" ${used || off || locked ? 'disabled' : ''}><span class="e">${e}</span>${t}${locked ? '<small>after 2 hints</small>' : ''}</button>`;
+  }).join('');
+  const ch = $('choices');
+  if (R.used.includes('choices')) {
+    ch.classList.remove('hidden');
+    const done = R.picked || R.revealed;
+    ch.innerHTML = '<div class="k">Which language is it?</div>' + R.choices.map(id => {
+      const cls = done ? (id === L.id ? 'right' : (id === R.picked ? 'wrong' : '')) : '';
+      return `<button class="cbtn ${cls}" data-choice="${id}" ${done ? 'disabled' : ''}>${esc(byId[id].name)}</button>`;
+    }).join('');
+  } else ch.classList.add('hidden');
   $('revealBtn').classList.toggle('hidden', R.revealed);
   const rv = $('reveal');
   if (R.revealed) {
-    const a = L.phrases[R.alt];
     rv.classList.remove('hidden');
     rv.innerHTML = `<div class="ans">${esc(L.name)}</div>
       <p>“${esc(p[0])}”${p[1] ? ` <i>(${esc(p[1])})</i>` : ''}<br>= <b>${esc(p[2])}</b></p>
       ${p[3] ? `<p class="m">Literally: ${esc(p[3])}</p>` : ''}
-      ${R.hints >= 3 ? `<p class="m">Hint phrase: “${esc(a[0])}”${a[1] ? ` (${esc(a[1])})` : ''} = ${esc(a[2])}</p>` : ''}
-      <p class="m">Family: ${esc(L.family)} · ${esc(L.continent)}</p>`;
+      <p class="m">Family: ${esc(L.family)} · ${esc(L.continent)} · pin: ${esc(L.place || '')}</p>`;
   } else rv.classList.add('hidden');
   $('whoTitle').textContent = R.awarded ? 'Scored! Tap Next for a new phrase.' : (R.revealed ? 'Did someone get it before the reveal?' : 'Who guessed it first?');
   $('players').innerHTML = S.players.length ? S.players.map(pl =>
@@ -133,7 +171,10 @@ function undo() {
 
 document.addEventListener('click', e => {
   const t = e.target.closest('button'); if (!t) return;
-  if (t.dataset.alt) return playAlt();
+  if (t.dataset.hint) return useHint(t.dataset.hint);
+  if (t.dataset.zoom) { R.zoom = !R.zoom; return render(); }
+  if (t.dataset.choice) { if (!R.picked && !R.revealed) { R.picked = t.dataset.choice; toast(R.picked === R.lang.id ? '✅ Correct! Tap who got it' : '❌ Nope, it was ' + R.lang.name); render(); } return; }
+  if (t.dataset.mode) return setMode(t.dataset.mode);
   if (t.dataset.award) return award(t.dataset.award);
   if (t.dataset.del) { S.players = S.players.filter(p => p.id !== t.dataset.del); save(); listPlayers(); render(); return; }
   if (t.id === 'addFirst') return openPlayers();
@@ -141,7 +182,22 @@ document.addEventListener('click', e => {
 $('startBtn').onclick = () => { R.started = true; render(); playMain(); };
 $('replayBtn').onclick = playMain;
 $('showText').onchange = e => { showText = e.target.checked; localStorage.setItem(LS_TEXT, showText ? '1' : '0'); render(); };
-$('hintBtn').onclick = () => { if (R.hints < 3 && !R.revealed) { R.hints++; render(); if (R.hints === 3) playAlt(); } };
+function useHint(id) {
+  if (R.revealed || !R.started || R.used.includes(id) || R.used.length >= 3) return;
+  if (id === 'choices' && !(R.used.includes('history') && R.used.includes('map'))) return;
+  R.used.push(id); R.hints = R.used.length; render();
+  if (id === 'map') setTimeout(() => { const m = $('hintMap'); if (m) m.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50);
+}
+function setMode(m) {
+  $('modeDlg').close();
+  if (m === mode()) return;
+  S.mode = m; save(); newRound(false);
+  toast(m === 'all' ? '🌍 All languages' : '🗺️ ' + m + ' game · ' + pool().length + ' languages');
+}
+$('modeBtn').onclick = () => {
+  $('modeList').innerHTML = REGIONS.map(([id, e, t]) => `<button type="button" data-mode="${id}" class="${id === mode() ? 'on' : ''}"><span>${e} ${t}</span><small>${id === 'all' ? LANGS.length : LANGS.filter(l => l.region === id).length} languages</small></button>`).join('');
+  $('modeDlg').showModal();
+};
 $('revealBtn').onclick = () => { R.revealed = true; R.started = true; render(); };
 $('nobodyBtn').onclick = nobody;
 $('nextBtn').onclick = next;

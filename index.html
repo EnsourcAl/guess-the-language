@@ -12,24 +12,25 @@
 </form></div>
 <header>
   <div class="brand">🌍 Guess the Language</div>
-  <div class="hdr-r"><span id="roundNo" class="pill">Round 1</span><button id="playersBtn" class="icon" aria-label="Players">👥</button></div>
+  <div class="hdr-r"><button id="modeBtn" class="pill mode">🌍 All</button><span id="roundNo" class="pill">Round 1</span><button id="playersBtn" class="icon" aria-label="Players">👥</button></div>
 </header>
 <section id="board" class="board"></section>
 <main>
   <div class="card" id="card">
-    <div class="worth"><span id="worth">Worth 3 pts</span><span id="hintCount">0/3 hints</span></div>
+    <div class="worth"><span id="worth">Worth 3 pts</span><span id="modeLbl"></span><span id="hintCount">0/3 hints</span></div>
     <div id="listen" class="listen">🎧<span>Listen…</span></div>
     <div id="phrase" class="phrase hidden"></div>
     <div id="roman" class="roman hidden"></div>
     <button id="startBtn" class="btn start">▶️ Start round</button>
     <button id="replayBtn" class="btn replay hidden">🔁 Replay <small id="voiceLbl"></small></button>
     <ol id="hints" class="hints"></ol>
+    <div id="choices" class="choices hidden"></div>
     <div id="reveal" class="reveal hidden"></div>
   </div>
   <label class="toggle"><input type="checkbox" id="showText"><span class="sw"></span><span>Show phrase text</span></label>
 
   <div class="controls">
-    <button id="hintBtn" class="btn hint">💡 Hint 1 · Continent</button>
+    <div id="hintBtns" class="hint-btns"></div>
     <button id="revealBtn" class="btn ghost">👀 Reveal answer</button>
   </div>
 
@@ -56,7 +57,13 @@
   <div class="addrow"><input id="newPlayer" placeholder="Name (e.g. Kaysen)" maxlength="20"><button type="button" id="addPlayer" class="btn small">Add</button></div>
   <ul id="playerList" class="plist"></ul>
   <div class="row2"><button type="button" id="resetScores" class="btn ghost small">Reset scores</button><button class="btn small">Done</button></div>
-  <p class="note">Points: 3 with no hints · 2 after 1 hint · 1 after 2 hints · ½ after 3 hints.</p>
+  <p class="note">Points: 3 with no hints · 2 after 1 hint · 1 after 2 hints · ½ after 3 hints (continent games: the 5 choices count as the 3rd hint).</p>
+</form></dialog>
+<dialog id="modeDlg"><form method="dialog" class="dlg">
+  <h3>Choose a game</h3>
+  <div id="modeList" class="mode-list"></div>
+  <p class="note">Scores are kept when you switch. In a continent game the continent is known, so hints are History, Map, then 5 choices.</p>
+  <button class="btn ghost small">Close</button>
 </form></dialog>
 <div id="toast" class="toast"></div>
 <script src="match.js"></script><script src="app.js"></script></body></html>
